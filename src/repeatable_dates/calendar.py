@@ -67,6 +67,16 @@ class BusinessCalendar:
         day = _calendar_date(value)
         return day.weekday() not in self.weekend and day not in self.holidays
 
+    def __or__(self, other: object) -> BusinessCalendar:
+        """Combine holidays and non-working weekdays from two calendars."""
+
+        if not isinstance(other, BusinessCalendar):
+            return NotImplemented
+        return BusinessCalendar(
+            holidays=self.holidays | other.holidays,
+            weekend=self.weekend | other.weekend,
+        )
+
     def adjust(self, value: CalendarDate, policy: Adjustment | str = Adjustment.NONE) -> date:
         day = _calendar_date(value)
         selected = Adjustment(policy)

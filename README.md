@@ -11,8 +11,10 @@ The Python distribution and import names are `repeatable-dates` and `repeatable_
 - One-time occurrences
 - Selected weekdays, including every-N-week schedules
 - Selected days of every month or every N months
+- Ordinal weekdays such as the second Monday or last Friday of each month
 - Selected months and days, including every-N-year schedules
 - Optional schedule start and end bounds
+- Optional occurrence limits
 - Configurable handling of dates such as February 30: clamp to month-end or skip
 - Previous, next, or nearest business-day adjustment
 - Custom holiday calendars and configurable weekend days
@@ -20,6 +22,9 @@ The Python distribution and import names are `repeatable-dates` and `repeatable_
 - ISO strings, `date`, and `datetime` inputs
 - Half-open range queries with predictable boundary behavior
 - No runtime dependencies
+- Lazy iteration, counting, and fixed-size result retrieval
+- Included and excluded exception dates
+- JSON-compatible schedule serialization
 
 ## Installation for development
 
@@ -72,6 +77,64 @@ schedule.next("2027-01-31")
 schedule.next("2027-01-31", inclusive=True)
 ```
 
+Generate ordinal weekdays:
+
+```python
+last_friday = Schedule.monthly_weekday(
+    start="2026-01-01",
+    weekday=Weekday.FRIDAY,
+    occurrence=-1,
+)
+```
+
+Use `occurrence=1` through `5` for a numbered weekday. Months without the requested fifth weekday are skipped.
+
+Limit a schedule by total occurrences:
+
+```python
+twelve_paydays = Schedule.weekly(
+    start="2026-01-02",
+    weekdays=[Weekday.FRIDAY],
+    count=12,
+)
+```
+
+The count begins at the schedule's start, even when a later query range is used.
+
+## Iteration, counting, and exceptions
+
+Use the lazy iterator for large ranges, or retrieve a fixed number of upcoming dates:
+
+```python
+for occurrence in schedule.iter_between("2026-01-01", "2036-01-01"):
+    print(occurrence)
+
+next_five = schedule.take(5, after="2026-06-01")
+total = schedule.count_between("2026-01-01", "2027-01-01")
+```
+
+Explicit exceptions operate on the final dates after business-day adjustment:
+
+```python
+dates = schedule.between(
+    "2026-01-01",
+    "2027-01-01",
+    exclude=["2026-07-03"],
+    include=["2026-07-06"],
+)
+```
+
+Included dates do not count toward a schedule's occurrence limit and are not automatically business-day adjusted.
+
+## Serialization
+
+Schedules have a stable, JSON-compatible dictionary representation:
+
+```python
+data = schedule.to_dict()
+restored = Schedule.from_dict(data)
+```
+
 ## Business-day adjustment
 
 Adjustment is opt-in, so existing schedules preserve their original dates by default:
@@ -105,6 +168,12 @@ The calendar treats Saturday and Sunday as non-working days by default. Pass `we
 Nearest-weekday adjustment checks both directions and chooses the previous business day when both are equally distant.
 
 When separate occurrences adjust to the same date, use `Collision.KEEP` (the default), `Collision.DEDUPLICATE`, or `Collision.ERROR`. The error policy raises `CollisionError`.
+
+Calendars can be composed. The resulting calendar contains the union of both holiday and weekend definitions:
+
+```python
+combined = federal_holidays | company_holidays
+```
 
 ## Range semantics
 
