@@ -14,6 +14,9 @@ The Python distribution and import names are `repeatable-dates` and `repeatable_
 - Selected months and days, including every-N-year schedules
 - Optional schedule start and end bounds
 - Configurable handling of dates such as February 30: clamp to month-end or skip
+- Previous, next, or nearest business-day adjustment
+- Custom holiday calendars and configurable weekend days
+- Explicit keep, deduplicate, or error handling for adjusted-date collisions
 - ISO strings, `date`, and `datetime` inputs
 - Half-open range queries with predictable boundary behavior
 - No runtime dependencies
@@ -69,6 +72,40 @@ schedule.next("2027-01-31")
 schedule.next("2027-01-31", inclusive=True)
 ```
 
+## Business-day adjustment
+
+Adjustment is opt-in, so existing schedules preserve their original dates by default:
+
+```python
+from repeatable_dates import Adjustment, BusinessCalendar, Collision
+
+calendar = BusinessCalendar(
+    holidays=["2026-01-01", "2026-07-03", "2026-12-25"],
+)
+
+schedule = Schedule.monthly(start="2026-01-01", days=[1, 15])
+dates = schedule.between(
+    "2026-01-01",
+    "2027-01-01",
+    adjustment=Adjustment.PREVIOUS_WEEKDAY,
+    calendar=calendar,
+    collisions=Collision.DEDUPLICATE,
+)
+```
+
+Available adjustment policies are:
+
+- `Adjustment.NONE`
+- `Adjustment.PREVIOUS_WEEKDAY`
+- `Adjustment.NEXT_WEEKDAY`
+- `Adjustment.NEAREST_WEEKDAY`
+
+The calendar treats Saturday and Sunday as non-working days by default. Pass `weekend=` to use different weekday numbers, where Monday is `0` and Sunday is `6`. Custom holidays accept ISO strings, `date`, or `datetime` values.
+
+Nearest-weekday adjustment checks both directions and chooses the previous business day when both are equally distant.
+
+When separate occurrences adjust to the same date, use `Collision.KEEP` (the default), `Collision.DEDUPLICATE`, or `Collision.ERROR`. The error policy raises `CollisionError`.
+
 ## Range semantics
 
 `between(start, end)` uses a half-open interval: `start` is included and `end` is excluded. A schedule's optional `until` date is inclusive.
@@ -85,7 +122,7 @@ The test suite uses only synthetic calendar dates and Python's standard library.
 
 ## Scope
 
-Repeatable Dates does not currently implement time-of-day scheduling, time zones, cron expressions, or the full iCalendar recurrence-rule standard. The project favors a compact and understandable API over exhaustive recurrence syntax.
+Repeatable Dates does not currently implement time-of-day scheduling, time zones, cron expressions, the full iCalendar recurrence-rule standard, or built-in regional holiday datasets. Holiday dates are supplied explicitly by the caller. The project favors a compact and understandable API over exhaustive recurrence syntax.
 
 ## License
 

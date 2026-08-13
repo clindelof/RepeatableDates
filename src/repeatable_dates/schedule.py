@@ -8,6 +8,8 @@ from datetime import date, datetime, timedelta
 from enum import Enum, IntEnum
 from typing import Iterable, Iterator, Literal
 
+from .calendar import Adjustment, BusinessCalendar, Collision, CollisionError
+
 
 DateLike = date | datetime | str
 Kind = Literal["once", "weekly", "monthly", "yearly"]
@@ -125,27 +127,82 @@ class Schedule:
         normalized_days = _unique_ints(days, minimum=1, maximum=31, name="days")
         return cls(kind="yearly", anchor=anchor, months=normalized_months, days=normalized_days, interval=every, until=_as_date(until, "until") if until is not None else None, overflow=Overflow(overflow))
 
-    def between(self, start: DateLike, end: DateLike) -> list[date]:
+    def between(
+        self,
+        start: DateLike,
+        end: DateLike,
+        *,
+        adjustment: Adjustment | str = Adjustment.NONE,
+        calendar: BusinessCalendar | None = None,
+        collisions: Collision | str = Collision.KEEP,
+    ) -> list[date]:
         """Return occurrences in the half-open range ``[start, end)``."""
 
         range_start = _as_date(start, "start")
         range_end = _as_date(end, "end")
         if range_end <= range_start:
             raise ValueError("end must be later than start")
+        selected_adjustment = Adjustment(adjustment)
+        selected_collisions = Collision(collisions)
+        if selected_adjustment is Adjustment.NONE:
+            return self._between_raw(range_start, range_end)
+
+        business_calendar = calendar or BusinessCalendar()
+        padding = business_calendar.search_padding
+        expanded_start = _safe_shift(range_start, -padding)
+        expanded_end = _safe_shift(range_end, padding)
+        adjusted = sorted(
+            business_calendar.adjust(occurrence, selected_adjustment)
+            for occurrence in self._between_raw(expanded_start, expanded_end)
+        )
+        in_range = [occurrence for occurrence in adjusted if range_start <= occurrence < range_end]
+        return _resolve_collisions(in_range, selected_collisions)
+
+    def _between_raw(self, range_start: date, range_end: date) -> list[date]:
         effective_start = max(range_start, self.anchor)
-        effective_end = min(range_end, self.until + timedelta(days=1)) if self.until is not None else range_end
+        effective_end = min(range_end, _safe_shift(self.until, 1)) if self.until is not None else range_end
         if effective_end <= effective_start:
             return []
         return list(self._occurrences(effective_start, effective_end))
 
-    def next(self, after: DateLike, *, inclusive: bool = False) -> date | None:
+    def next(
+        self,
+        after: DateLike,
+        *,
+        inclusive: bool = False,
+        adjustment: Adjustment | str = Adjustment.NONE,
+        calendar: BusinessCalendar | None = None,
+        collisions: Collision | str = Collision.KEEP,
+    ) -> date | None:
         """Return the first occurrence after a date, or on it when inclusive."""
 
         point = _as_date(after, "after")
         if point == date.max and not inclusive:
             return None
         start = point if inclusive else point + timedelta(days=1)
-        end = self.until + timedelta(days=1) if self.until is not None else date.max
+        if Adjustment(adjustment) is not Adjustment.NONE:
+            window_days = 366
+            while start < date.max:
+                end = _safe_shift(start, window_days)
+                if self.until is not None:
+                    end = min(end, _safe_shift(self.until, (calendar or BusinessCalendar()).search_padding + 1))
+                if end <= start:
+                    return None
+                values = self.between(
+                    start,
+                    end,
+                    adjustment=adjustment,
+                    calendar=calendar,
+                    collisions=collisions,
+                )
+                if values:
+                    return values[0]
+                if self.until is not None and end > self.until:
+                    return None
+                if end == date.max:
+                    return None
+                window_days = min(window_days * 2, (date.max - start).days)
+        end = _safe_shift(self.until, 1) if self.until is not None else date.max
         if end <= start:
             return None
         return next(self._occurrences(max(start, self.anchor), end), None)
@@ -202,3 +259,22 @@ class Schedule:
             if actual_day not in seen:
                 seen.add(actual_day)
                 yield date(year, month, actual_day)
+
+
+def _safe_shift(value: date, days: int) -> date:
+    if days < 0:
+        return date.min if (value - date.min).days < -days else value + timedelta(days=days)
+    return date.max if (date.max - value).days < days else value + timedelta(days=days)
+
+
+def _resolve_collisions(values: list[date], policy: Collision) -> list[date]:
+    if policy is Collision.KEEP:
+        return values
+    result: list[date] = []
+    for value in values:
+        if result and result[-1] == value:
+            if policy is Collision.ERROR:
+                raise CollisionError(f"multiple occurrences adjusted to {value.isoformat()}")
+            continue
+        result.append(value)
+    return result

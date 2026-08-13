@@ -1,7 +1,15 @@
 import unittest
 from datetime import date, datetime
 
-from repeatable_dates import Overflow, Schedule, Weekday
+from repeatable_dates import (
+    Adjustment,
+    BusinessCalendar,
+    Collision,
+    CollisionError,
+    Overflow,
+    Schedule,
+    Weekday,
+)
 
 
 class ScheduleTests(unittest.TestCase):
@@ -86,6 +94,100 @@ class ScheduleTests(unittest.TestCase):
             Schedule.weekly(start="2026-01-01", weekdays=[Weekday.MONDAY], every=0)
         with self.assertRaises(ValueError):
             Schedule.once("not-a-date")
+
+    def test_no_adjustment_preserves_weekend_dates(self):
+        schedule = Schedule.once("2026-07-04")
+        self.assertEqual(
+            [date(2026, 7, 4)],
+            schedule.between("2026-07-01", "2026-07-10", adjustment=Adjustment.NONE),
+        )
+
+    def test_previous_weekday_moves_weekend_back(self):
+        schedule = Schedule.once("2026-07-04")
+        self.assertEqual(
+            [date(2026, 7, 3)],
+            schedule.between("2026-07-01", "2026-07-10", adjustment=Adjustment.PREVIOUS_WEEKDAY),
+        )
+
+    def test_next_weekday_moves_weekend_forward(self):
+        schedule = Schedule.once("2026-07-05")
+        self.assertEqual(
+            [date(2026, 7, 6)],
+            schedule.between("2026-07-01", "2026-07-10", adjustment=Adjustment.NEXT_WEEKDAY),
+        )
+
+    def test_nearest_weekday_uses_expected_weekend_direction(self):
+        saturday = Schedule.once("2026-07-04")
+        sunday = Schedule.once("2026-07-05")
+        self.assertEqual(
+            [date(2026, 7, 3)],
+            saturday.between("2026-07-01", "2026-07-10", adjustment=Adjustment.NEAREST_WEEKDAY),
+        )
+        self.assertEqual(
+            [date(2026, 7, 6)],
+            sunday.between("2026-07-01", "2026-07-10", adjustment=Adjustment.NEAREST_WEEKDAY),
+        )
+
+    def test_custom_holidays_are_not_business_days(self):
+        calendar = BusinessCalendar(holidays=["2026-07-03"])
+        schedule = Schedule.once("2026-07-04")
+        self.assertEqual(
+            [date(2026, 7, 2)],
+            schedule.between(
+                "2026-07-01",
+                "2026-07-10",
+                adjustment=Adjustment.PREVIOUS_WEEKDAY,
+                calendar=calendar,
+            ),
+        )
+
+    def test_custom_weekend_days_are_supported(self):
+        calendar = BusinessCalendar(weekend=[4, 5])
+        self.assertFalse(calendar.is_business_day("2026-07-03"))
+        self.assertTrue(calendar.is_business_day("2026-07-05"))
+        with self.assertRaises(ValueError):
+            BusinessCalendar(weekend=range(7))
+
+    def test_adjusted_occurrences_can_move_into_query_range(self):
+        schedule = Schedule.once("2023-01-01")
+        self.assertEqual(
+            [date(2023, 1, 2)],
+            schedule.between("2023-01-02", "2023-01-10", adjustment=Adjustment.NEXT_WEEKDAY),
+        )
+
+    def test_collision_policies_keep_deduplicate_or_raise(self):
+        schedule = Schedule.weekly(
+            start="2026-01-01",
+            weekdays=[Weekday.SATURDAY, Weekday.SUNDAY],
+        )
+        expected = [date(2026, 1, 2), date(2026, 1, 2), date(2026, 1, 9), date(2026, 1, 9)]
+        self.assertEqual(
+            expected,
+            schedule.between("2026-01-01", "2026-01-12", adjustment=Adjustment.PREVIOUS_WEEKDAY),
+        )
+        self.assertEqual(
+            [date(2026, 1, 2), date(2026, 1, 9)],
+            schedule.between(
+                "2026-01-01",
+                "2026-01-12",
+                adjustment=Adjustment.PREVIOUS_WEEKDAY,
+                collisions=Collision.DEDUPLICATE,
+            ),
+        )
+        with self.assertRaises(CollisionError):
+            schedule.between(
+                "2026-01-01",
+                "2026-01-12",
+                adjustment=Adjustment.PREVIOUS_WEEKDAY,
+                collisions=Collision.ERROR,
+            )
+
+    def test_next_supports_adjusted_occurrences(self):
+        schedule = Schedule.once("2023-01-01")
+        self.assertEqual(
+            date(2023, 1, 2),
+            schedule.next("2023-01-01", adjustment=Adjustment.NEXT_WEEKDAY),
+        )
 
 
 if __name__ == "__main__":
