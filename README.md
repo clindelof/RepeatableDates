@@ -29,8 +29,8 @@ The Python distribution and import names are `repeatable-dates` and `repeatable_
 ## Installation for development
 
 ```bash
-git clone https://github.com/clindelof/repeatable.git
-cd repeatable
+git clone https://github.com/clindelof/RepeatableDates.git
+cd RepeatableDates
 python -m venv .venv
 python -m pip install -e .
 ```
