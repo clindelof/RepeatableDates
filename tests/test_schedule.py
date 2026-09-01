@@ -32,6 +32,26 @@ class ScheduleTests(unittest.TestCase):
             schedule.between("2026-01-01", "2026-02-10"),
         )
 
+    def test_weekly_schedule_can_limit_occurrences_per_calendar_month(self):
+        schedule = Schedule.weekly(
+            start="2026-01-02",
+            weekdays=[Weekday.FRIDAY],
+            every=2,
+            max_per_month=2,
+        )
+
+        self.assertEqual(
+            [
+                date(2026, 1, 2),
+                date(2026, 1, 16),
+                date(2026, 2, 13),
+                date(2026, 2, 27),
+            ],
+            schedule.between("2026-01-01", "2026-03-01"),
+        )
+        self.assertEqual([], schedule.between("2026-01-20", "2026-02-01"))
+        self.assertEqual(date(2026, 2, 13), schedule.next("2026-01-16"))
+
     def test_monthly_clamps_to_end_of_month(self):
         schedule = Schedule.monthly(start="2028-01-01", days=[31])
         self.assertEqual(
@@ -92,6 +112,12 @@ class ScheduleTests(unittest.TestCase):
             Schedule.weekly(start="2026-01-01", weekdays=[True])
         with self.assertRaises(ValueError):
             Schedule.weekly(start="2026-01-01", weekdays=[Weekday.MONDAY], every=0)
+        with self.assertRaises(ValueError):
+            Schedule.weekly(start="2026-01-01", weekdays=[Weekday.MONDAY], max_per_month=0)
+        with self.assertRaises(ValueError):
+            Schedule.weekly(start="2026-01-01", weekdays=[Weekday.MONDAY], max_per_month=True)
+        with self.assertRaises(ValueError):
+            Schedule.weekly(start="2026-01-01", weekdays=[Weekday.MONDAY], max_per_month=1.5)
         with self.assertRaises(ValueError):
             Schedule.once("not-a-date")
 

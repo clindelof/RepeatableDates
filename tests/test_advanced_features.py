@@ -113,6 +113,7 @@ class AdvancedFeatureTests(unittest.TestCase):
                 weekdays=[Weekday.MONDAY, Weekday.FRIDAY],
                 every=2,
                 count=8,
+                max_per_month=3,
             ),
             Schedule.monthly(
                 start="2026-01-15",

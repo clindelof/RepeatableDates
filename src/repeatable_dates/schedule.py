@@ -77,6 +77,7 @@ class Schedule:
     interval: int = 1
     until: date | None = None
     count: int | None = None
+    max_per_month: int | None = None
     overflow: Overflow = Overflow.CLAMP
     weekday: int | None = None
     ordinal: int | None = None
@@ -88,6 +89,15 @@ class Schedule:
             raise ValueError("until cannot be earlier than the schedule start")
         if self.count is not None and (isinstance(self.count, bool) or self.count < 1):
             raise ValueError("count must be at least 1")
+        if self.max_per_month is not None:
+            if self.kind != "weekly":
+                raise ValueError("max_per_month is only supported for weekly schedules")
+            if (
+                isinstance(self.max_per_month, bool)
+                or not isinstance(self.max_per_month, int)
+                or self.max_per_month < 1
+            ):
+                raise ValueError("max_per_month must be at least 1")
 
     @classmethod
     def once(cls, on: DateLike) -> Schedule:
@@ -103,6 +113,7 @@ class Schedule:
         every: int = 1,
         until: DateLike | None = None,
         count: int | None = None,
+        max_per_month: int | None = None,
     ) -> Schedule:
         raw_weekdays = tuple(weekdays)
         if any(isinstance(day, bool) for day in raw_weekdays):
@@ -115,6 +126,7 @@ class Schedule:
             interval=every,
             until=_optional_date(until, "until"),
             count=count,
+            max_per_month=max_per_month,
         )
 
     @classmethod
@@ -292,6 +304,8 @@ class Schedule:
             result["until"] = self.until.isoformat()
         if self.count is not None:
             result["count"] = self.count
+        if self.max_per_month is not None:
+            result["max_per_month"] = self.max_per_month
         return result
 
     @classmethod
@@ -310,7 +324,11 @@ class Schedule:
             "count": data.get("count"),
         }
         if kind == "weekly":
-            return cls.weekly(weekdays=data["weekdays"], **common)
+            return cls.weekly(
+                weekdays=data["weekdays"],
+                max_per_month=data.get("max_per_month"),
+                **common,
+            )
         if kind == "monthly":
             return cls.monthly(days=data["days"], overflow=data.get("overflow", Overflow.CLAMP), **common)
         if kind == "monthly_weekday":
@@ -351,10 +369,18 @@ class Schedule:
     def _weekly(self, start: date, end: date) -> Iterator[date]:
         week_anchor = self.anchor - timedelta(days=self.anchor.weekday())
         cursor = start
+        if self.max_per_month is not None:
+            cursor = max(self.anchor, date(start.year, start.month, 1))
+        monthly_counts: dict[tuple[int, int], int] = {}
         while cursor < end:
             weeks = (cursor - week_anchor).days // 7
             if weeks >= 0 and weeks % self.interval == 0 and cursor.weekday() in self.days:
-                yield cursor
+                month_key = (cursor.year, cursor.month)
+                count = monthly_counts.get(month_key, 0)
+                if self.max_per_month is None or count < self.max_per_month:
+                    monthly_counts[month_key] = count + 1
+                    if cursor >= start:
+                        yield cursor
             if cursor == date.max:
                 break
             cursor += timedelta(days=1)

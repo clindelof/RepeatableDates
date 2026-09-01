@@ -10,6 +10,7 @@ The Python distribution and import names are `repeatable-dates` and `repeatable_
 
 - One-time occurrences
 - Selected weekdays, including every-N-week schedules
+- Optional per-calendar-month caps for weekly schedules
 - Selected days of every month or every N months
 - Ordinal weekdays such as the second Monday or last Friday of each month
 - Selected months and days, including every-N-year schedules
@@ -49,6 +50,24 @@ schedule = Schedule.weekly(
 schedule.between("2026-01-01", "2026-02-01")
 # [date(2026, 1, 2), date(2026, 1, 16), date(2026, 1, 30)]
 ```
+
+Cap a biweekly cadence at two occurrences in each calendar month:
+
+```python
+schedule = Schedule.weekly(
+    start="2026-01-02",
+    weekdays=[Weekday.FRIDAY],
+    every=2,
+    max_per_month=2,
+)
+
+schedule.between("2026-01-01", "2026-03-01")
+# [date(2026, 1, 2), date(2026, 1, 16),
+#  date(2026, 2, 13), date(2026, 2, 27)]
+```
+
+The underlying weekly cadence is preserved. A third occurrence in a calendar
+month is omitted without shifting later occurrences.
 
 Monthly dates are clamped to the end of shorter months by default:
 
